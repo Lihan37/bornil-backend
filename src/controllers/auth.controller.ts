@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import type { UpdateFilter } from 'mongodb';
 import { getDB } from '../db/connectDB';
 import { adminPhones } from '../config/env';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -21,13 +22,15 @@ export const register = asyncHandler(async (req, res) => {
   const user: User = {
     name,
     phone,
-    email: email || undefined,
     passwordHash: await bcrypt.hash(password, 12),
     role: adminPhones.includes(phone) ? 'admin' : 'user',
     status: 'active',
     createdAt: now,
     updatedAt: now,
   };
+  if (email) {
+    user.email = email;
+  }
 
   const result = await db.collection<User>('users').insertOne(user);
   const savedUser = { ...user, _id: result.insertedId };
@@ -62,10 +65,15 @@ export const updateProfile = asyncHandler(async (req, res) => {
   const db = getDB();
   const payload = {
     name: req.body.name,
-    email: req.body.email || undefined,
     updatedAt: new Date(),
   };
-  await db.collection<User>('users').updateOne({ _id: toObjectId(req.user!.userId) }, { $set: payload });
+  const update: UpdateFilter<User> = req.body.email
+    ? { $set: { ...payload, email: req.body.email } }
+    : { $set: payload, $unset: { email: 1 } };
+  await db.collection<User>('users').updateOne(
+    { _id: toObjectId(req.user!.userId) },
+    update,
+  );
   const user = await db.collection<User>('users').findOne({ _id: toObjectId(req.user!.userId) });
   successResponse(res, 200, 'Profile updated', sanitizeUser(user!));
 });
