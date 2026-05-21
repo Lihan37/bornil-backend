@@ -40,9 +40,25 @@ export async function closeDB() {
 }
 
 async function createIndexes(database: Db) {
+  const users = database.collection('users');
+  const userIndexes = await users.indexes();
+  for (const index of userIndexes) {
+    if (index.key?.email === 1 && index.name && index.name !== '_id_' && !index.partialFilterExpression) {
+      await users.dropIndex(index.name);
+    }
+  }
+
   await Promise.all([
-    database.collection('users').createIndex({ phone: 1 }, { unique: true }),
-    database.collection('users').createIndex({ email: 1 }, { unique: true, sparse: true }),
+    users.createIndex({ phone: 1 }, { unique: true }),
+    users.createIndex(
+      { email: 1 },
+      {
+        unique: true,
+        partialFilterExpression: {
+          email: { $type: 'string' },
+        },
+      },
+    ),
     database.collection('products').createIndex({ slug: 1 }, { unique: true }),
     database.collection('products').createIndex({ category: 1, status: 1, createdAt: -1 }),
     database.collection('categories').createIndex({ slug: 1 }, { unique: true }),
