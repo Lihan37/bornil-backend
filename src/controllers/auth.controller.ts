@@ -1,0 +1,68 @@
+import bcrypt from 'bcryptjs';
+import { getDB } from '../db/connectDB';
+import { adminPhones } from '../config/env';
+import { asyncHandler } from '../utils/asyncHandler';
+import { AppError } from '../utils/AppError';
+import { signToken } from '../utils/jwt';
+import { sanitizeUser } from '../utils/sanitize';
+import { successResponse } from '../utils/apiResponse';
+import type { User } from '../types';
+import { toObjectId } from '../utils/objectId';
+
+export const register = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const { name, phone, email, password } = req.body;
+  const existing = await db.collection<User>('users').findOne({
+    $or: [{ phone }, ...(email ? [{ email }] : [])],
+  });
+  if (existing) throw new AppError(409, 'Account already exists');
+
+  const now = new Date();
+  const user: User = {
+    name,
+    phone,
+    email: email || undefined,
+    passwordHash: await bcrypt.hash(password, 12),
+    role: adminPhones.includes(phone) ? 'admin' : 'user',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const result = await db.collection<User>('users').insertOne(user);
+  const savedUser = { ...user, _id: result.insertedId };
+  const token = signToken({ userId: result.insertedId.toString(), role: savedUser.role });
+
+  successResponse(res, 201, 'Registered successfully', { token, user: sanitizeUser(savedUser) });
+});
+
+export const login = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const { phone, password } = req.body;
+  const user = await db.collection<User>('users').findOne({ phone });
+  if (!user) throw new AppError(401, 'Invalid phone or password');
+
+  const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+  if (!isPasswordValid) throw new AppError(401, 'Invalid phone or password');
+
+  const token = signToken({ userId: user._id!.toString(), role: user.role });
+  successResponse(res, 200, 'Logged in successfully', { token, user: sanitizeUser(user) });
+});
+
+export const me = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const user = await db.collection<User>('users').findOne({ _id: toObjectId(req.user!.userId) });
+  if (!user) throw new AppError(404, 'User not found');
+  successResponse(res, 200, 'Profile loaded', sanitizeUser(user));
+});
+
+export const updateProfile = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const payload = {
+    name: req.body.name,
+    email: req.body.email || undefined,
+    updatedAt: new Date(),
+  };
+  await db.collection<User>('users').updateOne({ _id: toObjectId(req.user!.userId) }, { $set: payload });
+  const user = await db.collection<User>('users').findOne({ _id: toObjectId(req.user!.userId) });
+  successResponse(res, 200, 'Profile updated', sanitizeUser(user!));
+});
