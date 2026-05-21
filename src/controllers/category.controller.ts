@@ -7,7 +7,7 @@ import { toObjectId } from '../utils/objectId';
 import { slugify } from '../utils/slugify';
 
 export const getCategories = asyncHandler(async (_req, res) => {
-  const categories = await getDB().collection<Category>('categories').find({}).sort({ name: 1 }).toArray();
+  const categories = await getDB().collection<Category>('categories').find({}).sort({ displayOrder: 1, name: 1 }).toArray();
   successResponse(res, 200, 'Categories loaded', categories);
 });
 

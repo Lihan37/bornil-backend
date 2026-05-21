@@ -46,6 +46,7 @@ export type Category = {
   slug: string;
   image?: string;
   isFeatured: boolean;
+  displayOrder?: number;
   createdAt: Date;
   updatedAt: Date;
 };

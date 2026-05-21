@@ -2,7 +2,7 @@ import { connectDB, closeDB } from './db/connectDB';
 import type { Category, Product } from './types';
 import { slugify } from './utils/slugify';
 
-const categoryNames = ['Earrings', 'Necklaces', 'Rings', 'Bracelets', 'Bangles', 'Bridal Jewelry', 'Hair Accessories', 'Anklets'];
+const categoryNames = ['Earrings', 'Necklaces', 'Rings', 'Bracelets', 'Bangles', 'Anklets', 'Hair Accessories', 'Bridal Jewelry'];
 
 const sampleProducts = [
   {
@@ -52,10 +52,11 @@ async function seed() {
   await db.collection<Product>('products').deleteMany({});
 
   await db.collection<Category>('categories').insertMany(
-    categoryNames.map((name) => ({
+    categoryNames.map((name, index) => ({
       name,
       slug: slugify(name),
-      isFeatured: ['Earrings', 'Necklaces', 'Rings', 'Bridal Jewelry'].includes(name),
+      isFeatured: true,
+      displayOrder: index + 1,
       createdAt: now,
       updatedAt: now,
     })),
