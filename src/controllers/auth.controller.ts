@@ -24,6 +24,7 @@ export const register = asyncHandler(async (req, res) => {
     email: email || undefined,
     passwordHash: await bcrypt.hash(password, 12),
     role: adminPhones.includes(phone) ? 'admin' : 'user',
+    status: 'active',
     createdAt: now,
     updatedAt: now,
   };
@@ -40,6 +41,7 @@ export const login = asyncHandler(async (req, res) => {
   const { phone, password } = req.body;
   const user = await db.collection<User>('users').findOne({ phone });
   if (!user) throw new AppError(401, 'Invalid phone or password');
+  if (user.status === 'blocked') throw new AppError(403, 'Your account is blocked');
 
   const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
   if (!isPasswordValid) throw new AppError(401, 'Invalid phone or password');
@@ -52,6 +54,7 @@ export const me = asyncHandler(async (req, res) => {
   const db = getDB();
   const user = await db.collection<User>('users').findOne({ _id: toObjectId(req.user!.userId) });
   if (!user) throw new AppError(404, 'User not found');
+  if (user.status === 'blocked') throw new AppError(403, 'Your account is blocked');
   successResponse(res, 200, 'Profile loaded', sanitizeUser(user));
 });
 

@@ -1,6 +1,7 @@
 import type { ObjectId } from 'mongodb';
 
 export type Role = 'user' | 'admin';
+export type UserStatus = 'active' | 'blocked';
 export type ProductStatus = 'active' | 'draft' | 'archived';
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
 
@@ -11,6 +12,7 @@ export type User = {
   email?: string;
   passwordHash: string;
   role: Role;
+  status: UserStatus;
   createdAt: Date;
   updatedAt: Date;
 };
