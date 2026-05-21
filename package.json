@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "seed": "ts-node src/seed.ts",
     "seed:categories": "ts-node src/seedCategories.ts",
-    "migrate:users": "ts-node src/migrateUsers.ts"
+    "migrate:users": "ts-node src/migrateUsers.ts",
+    "migrate:admins": "ts-node src/migrateAdmins.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
