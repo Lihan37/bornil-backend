@@ -10,7 +10,11 @@ const envSchema = z.object({
   DB_NAME: z.string().default('jewelry_shop'),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
-  CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL'),
+  CLIENT_URL: z.string().refine((value) => {
+    const urls = value.split(',').map((url) => url.trim()).filter(Boolean);
+    if (!urls.length) return false;
+    return urls.every((url) => z.string().url().safeParse(url).success);
+  }, 'CLIENT_URL must be one or more valid URLs separated by commas'),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('production'),
   ADMIN_PHONES: z.string().default('01716285196'),
   CLOUDINARY_CLOUD_NAME: z.string().min(1, 'CLOUDINARY_CLOUD_NAME is required'),
