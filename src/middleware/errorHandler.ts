@@ -21,7 +21,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error instanceof MulterError) {
     const message =
       error.code === 'LIMIT_FILE_SIZE'
-        ? 'Each image must be 5MB or smaller'
+        ? 'Each image must be 8MB or smaller'
         : error.code === 'LIMIT_FILE_COUNT' || error.code === 'LIMIT_UNEXPECTED_FILE'
           ? 'You can upload at most 6 images'
           : `Image upload failed: ${error.message}`;
