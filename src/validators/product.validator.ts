@@ -7,14 +7,15 @@ const formBoolean = z.preprocess((value) => {
 }, z.boolean());
 
 export const productSchema = z.object({
-  name: z.string().min(2).max(140),
+  name: z.string().min(2).max(160),
   category: z.string().min(2).max(80),
   price: z.coerce.number().positive(),
   oldPrice: z.coerce.number().positive().optional(),
   description: z.string().min(10).max(4000),
-  material: z.string().min(1).max(120),
-  color: z.string().min(1).max(80),
-  size: z.string().min(1).max(80),
+  material: z.string().min(1).max(300),
+  color: z.string().min(1).max(200),
+  // Size is optional — not every piece has one (e.g. adjustable / one-size).
+  size: z.string().max(120).optional().default(''),
   stock: z.coerce.number().int().min(0),
   isFeatured: formBoolean.default(false),
   isBestSelling: formBoolean.default(false),
