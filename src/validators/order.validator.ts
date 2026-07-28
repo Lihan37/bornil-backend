@@ -12,5 +12,5 @@ export const orderSchema = z.object({
 });
 
 export const orderStatusSchema = z.object({
-  orderStatus: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']),
+  orderStatus: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'paid', 'cancelled']),
 });

@@ -3,7 +3,7 @@ import type { ObjectId } from 'mongodb';
 export type Role = 'user' | 'admin';
 export type UserStatus = 'active' | 'blocked';
 export type ProductStatus = 'active' | 'draft' | 'archived';
-export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'paid' | 'cancelled';
 
 export type User = {
   _id?: ObjectId;
