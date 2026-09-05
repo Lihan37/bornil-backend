@@ -4,6 +4,7 @@ export type Role = 'user' | 'admin';
 export type UserStatus = 'active' | 'blocked';
 export type ProductStatus = 'active' | 'draft' | 'archived';
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'paid' | 'cancelled';
+export type DeliveryArea = 'inside_dhaka' | 'outside_dhaka';
 
 export type User = {
   _id?: ObjectId;
@@ -68,6 +69,9 @@ export type Order = {
   customerName: string;
   phone: string;
   address: string;
+  deliveryArea: DeliveryArea;
+  deliveryCharge: number;
+  subtotalAmount: number;
   items: OrderItem[];
   totalAmount: number;
   paymentMethod: 'cash_on_delivery';

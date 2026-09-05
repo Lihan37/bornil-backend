@@ -1,10 +1,15 @@
 import { ObjectId } from 'mongodb';
 import { getDB } from '../db/connectDB';
-import type { Order, OrderItem, Product } from '../types';
+import type { DeliveryArea, Order, OrderItem, Product } from '../types';
 import { AppError } from '../utils/AppError';
 import { successResponse } from '../utils/apiResponse';
 import { asyncHandler } from '../utils/asyncHandler';
 import { toObjectId } from '../utils/objectId';
+
+const deliveryCharges: Record<DeliveryArea, number> = {
+  inside_dhaka: 70,
+  outside_dhaka: 130,
+};
 
 export const createOrder = asyncHandler(async (req, res) => {
   const db = getDB();
@@ -26,13 +31,19 @@ export const createOrder = asyncHandler(async (req, res) => {
     };
   });
 
-  const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const deliveryArea = req.body.deliveryArea as DeliveryArea;
+  const deliveryCharge = deliveryCharges[deliveryArea];
+  const totalAmount = subtotalAmount + deliveryCharge;
   const now = new Date();
   const order: Order = {
     userId: req.user?.userId ? new ObjectId(req.user.userId) : undefined,
     customerName: req.body.customerName,
     phone: req.body.phone,
     address: req.body.address,
+    deliveryArea,
+    deliveryCharge,
+    subtotalAmount,
     items,
     totalAmount,
     paymentMethod: 'cash_on_delivery',
