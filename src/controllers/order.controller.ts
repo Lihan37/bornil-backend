@@ -1,10 +1,14 @@
+import bcrypt from 'bcryptjs';
 import { ObjectId } from 'mongodb';
+import { adminPhones } from '../config/env';
 import { getDB } from '../db/connectDB';
-import type { DeliveryArea, Order, OrderItem, Product } from '../types';
+import type { DeliveryArea, Order, OrderItem, Product, User } from '../types';
 import { AppError } from '../utils/AppError';
 import { successResponse } from '../utils/apiResponse';
 import { asyncHandler } from '../utils/asyncHandler';
+import { signToken } from '../utils/jwt';
 import { toObjectId } from '../utils/objectId';
+import { sanitizeUser } from '../utils/sanitize';
 
 const deliveryCharges: Record<DeliveryArea, number> = {
   inside_dhaka: 70,
@@ -19,6 +23,40 @@ function subtotal(items: OrderItem[]) {
 
 function itemKey(item: Pick<OrderItem, 'productId'>) {
   return item.productId.toString();
+}
+
+async function resolveOrderUser() {
+  return null;
+}
+
+async function findOrCreateCheckoutUser(payload: { name: string; phone: string; email?: string; password?: string }, authenticatedUserId?: string) {
+  const db = getDB();
+  if (authenticatedUserId) {
+    const user = await db.collection<User>('users').findOne({ _id: toObjectId(authenticatedUserId) });
+    if (!user) throw new AppError(401, 'Invalid user');
+    return { user, auth: undefined };
+  }
+
+  const existing = await db.collection<User>('users').findOne({ phone: payload.phone });
+  if (existing) return { user: existing, auth: undefined };
+  if (!payload.password) throw new AppError(400, 'Password is required to create your account with this order');
+
+  const now = new Date();
+  const user: User = {
+    name: payload.name,
+    phone: payload.phone,
+    passwordHash: await bcrypt.hash(payload.password, 12),
+    role: adminPhones.includes(payload.phone) ? 'admin' : 'user',
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (payload.email) user.email = payload.email;
+
+  const result = await db.collection<User>('users').insertOne(user);
+  const savedUser = { ...user, _id: result.insertedId };
+  const token = signToken({ userId: result.insertedId.toString(), role: savedUser.role });
+  return { user: savedUser, auth: { token, user: sanitizeUser(savedUser) } };
 }
 
 function buildRequestedItems(order: Order, requested: Array<{ productId: string; quantity: number }>) {
@@ -58,6 +96,10 @@ async function assertExtraStock(items: OrderItem[], requestedItems: OrderItem[])
 
 export const createOrder = asyncHandler(async (req, res) => {
   const db = getDB();
+  const { user, auth } = await findOrCreateCheckoutUser(
+    { name: req.body.customerName, phone: req.body.phone, email: req.body.email, password: req.body.password },
+    req.user?.userId,
+  );
   const productIds = req.body.items.map((item: { productId: string }) => toObjectId(item.productId));
   const products = await db.collection<Product>('products').find({ _id: { $in: productIds }, status: 'active' }).toArray();
   const productMap = new Map(products.map((product) => [product._id!.toString(), product]));
@@ -82,7 +124,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   const totalAmount = subtotalAmount + deliveryCharge;
   const now = new Date();
   const order: Order = {
-    userId: req.user?.userId ? new ObjectId(req.user.userId) : undefined,
+    userId: user._id,
     customerName: req.body.customerName,
     phone: req.body.phone,
     address: req.body.address,
@@ -93,6 +135,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     totalAmount,
     paymentMethod: 'cash_on_delivery',
     orderStatus: 'pending',
+    inventoryRestored: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -113,7 +156,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     await session.endSession();
   }
 
-  successResponse(res, 201, 'Order placed', order);
+  successResponse(res, 201, 'Order placed', { order, auth });
 });
 
 export const getMyOrders = asyncHandler(async (req, res) => {
@@ -131,15 +174,45 @@ export const getAdminOrders = asyncHandler(async (_req, res) => {
 });
 
 export const updateOrderStatus = asyncHandler(async (req, res) => {
-  const result = await getDB()
-    .collection<Order>('orders')
-    .findOneAndUpdate(
-      { _id: toObjectId(req.params.id) },
-      { $set: { orderStatus: req.body.orderStatus, updatedAt: new Date() } },
-      { returnDocument: 'after' },
-    );
-  if (!result) throw new AppError(404, 'Order not found');
-  successResponse(res, 200, 'Order status updated', result);
+  const db = getDB();
+  const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });
+  if (!order) throw new AppError(404, 'Order not found');
+  if (order.orderStatus === 'cancelled' && req.body.orderStatus !== 'cancelled') {
+    throw new AppError(400, 'Cancelled orders cannot be reopened');
+  }
+
+  const now = new Date();
+  let updatedOrder: Order | null = null;
+  const session = db.client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      if (req.body.orderStatus === 'cancelled' && !order.inventoryRestored) {
+        for (const item of order.items) {
+          await db.collection<Product>('products').updateOne(
+            { _id: item.productId },
+            { $inc: { stock: item.quantity }, $set: { updatedAt: now } },
+            { session },
+          );
+        }
+      }
+
+      updatedOrder = await db.collection<Order>('orders').findOneAndUpdate(
+        { _id: order._id },
+        {
+          $set: {
+            orderStatus: req.body.orderStatus,
+            inventoryRestored: req.body.orderStatus === 'cancelled' ? true : order.inventoryRestored ?? false,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: 'after', session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  successResponse(res, 200, 'Order status updated', updatedOrder);
 });
 
 export const requestOrderEdit = asyncHandler(async (req, res) => {

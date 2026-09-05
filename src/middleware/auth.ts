@@ -4,19 +4,32 @@ import { verifyToken } from '../utils/jwt';
 import { toObjectId } from '../utils/objectId';
 import { AppError } from '../utils/AppError';
 
+async function attachUserFromToken(req: Request, token: string) {
+  const payload = verifyToken(token);
+  const db = getDB();
+  const user = await db.collection('users').findOne({ _id: toObjectId(payload.userId) }, { projection: { _id: 1, role: 1, status: 1 } });
+  if (!user) throw new AppError(401, 'Invalid or expired token');
+  if (user.status === 'blocked') throw new AppError(403, 'Your account is blocked');
+  req.user = { userId: payload.userId, role: user.role };
+}
+
 export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   try {
     const header = req.headers.authorization;
     const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
     if (!token) throw new AppError(401, 'Authentication required');
+    await attachUserFromToken(req, token);
+    next();
+  } catch (error) {
+    next(error instanceof AppError ? error : new AppError(401, 'Invalid or expired token'));
+  }
+}
 
-    const payload = verifyToken(token);
-    const db = getDB();
-    const user = await db.collection('users').findOne({ _id: toObjectId(payload.userId) }, { projection: { _id: 1, role: 1, status: 1 } });
-    if (!user) throw new AppError(401, 'Invalid or expired token');
-    if (user.status === 'blocked') throw new AppError(403, 'Your account is blocked');
-
-    req.user = { userId: payload.userId, role: user.role };
+export async function optionalAuth(req: Request, _res: Response, next: NextFunction) {
+  try {
+    const header = req.headers.authorization;
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    if (token) await attachUserFromToken(req, token);
     next();
   } catch (error) {
     next(error instanceof AppError ? error : new AppError(401, 'Invalid or expired token'));

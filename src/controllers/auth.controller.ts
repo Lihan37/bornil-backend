@@ -53,6 +53,29 @@ export const login = asyncHandler(async (req, res) => {
   successResponse(res, 200, 'Logged in successfully', { token, user: sanitizeUser(user) });
 });
 
+export const requestPasswordReset = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const { phone, password } = req.body;
+  const requestedPasswordHash = await bcrypt.hash(password, 12);
+  const now = new Date();
+
+  await db.collection<User>('users').updateOne(
+    { phone, status: { $ne: 'blocked' } },
+    {
+      $set: {
+        passwordResetRequest: {
+          status: 'pending',
+          requestedPasswordHash,
+          requestedAt: now,
+        },
+        updatedAt: now,
+      },
+    },
+  );
+
+  successResponse(res, 200, 'If the phone number exists, a password reset request was sent to admin');
+});
+
 export const me = asyncHandler(async (req, res) => {
   const db = getDB();
   const user = await db.collection<User>('users').findOne({ _id: toObjectId(req.user!.userId) });

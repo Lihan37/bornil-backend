@@ -6,6 +6,15 @@ export type ProductStatus = 'active' | 'draft' | 'archived';
 export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'paid' | 'cancelled';
 export type DeliveryArea = 'inside_dhaka' | 'outside_dhaka';
 export type OrderEditRequestStatus = 'pending' | 'approved' | 'rejected';
+export type PasswordResetRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export type PasswordResetRequest = {
+  status: PasswordResetRequestStatus;
+  requestedPasswordHash?: string;
+  adminNote?: string;
+  requestedAt: Date;
+  respondedAt?: Date;
+};
 
 export type User = {
   _id?: ObjectId;
@@ -15,6 +24,7 @@ export type User = {
   passwordHash: string;
   role: Role;
   status: UserStatus;
+  passwordResetRequest?: PasswordResetRequest;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -88,6 +98,7 @@ export type Order = {
   totalAmount: number;
   paymentMethod: 'cash_on_delivery';
   orderStatus: OrderStatus;
+  inventoryRestored?: boolean;
   editRequest?: OrderEditRequest;
   createdAt: Date;
   updatedAt: Date;

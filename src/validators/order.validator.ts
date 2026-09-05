@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const orderSchema = z.object({
   customerName: z.string().min(2).max(80),
   phone: z.string().regex(/^01[0-9]{9}$/, 'Use a valid Bangladesh phone number'),
+  email: z.string().email().optional().or(z.literal('')),
+  password: z.string().min(6).max(100).optional(),
   address: z.string().min(8).max(500),
   deliveryArea: z.enum(['inside_dhaka', 'outside_dhaka']),
   paymentMethod: z.literal('cash_on_delivery'),
