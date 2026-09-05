@@ -15,3 +15,15 @@ export const orderSchema = z.object({
 export const orderStatusSchema = z.object({
   orderStatus: z.enum(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'paid', 'cancelled']),
 });
+
+export const orderEditRequestSchema = z.object({
+  note: z.string().max(500).optional(),
+  items: z.array(z.object({
+    productId: z.string().min(1),
+    quantity: z.coerce.number().int().min(0).max(99),
+  })).min(1),
+});
+
+export const orderEditDecisionSchema = z.object({
+  adminNote: z.string().max(500).optional(),
+});

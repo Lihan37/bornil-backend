@@ -11,6 +11,51 @@ const deliveryCharges: Record<DeliveryArea, number> = {
   outside_dhaka: 130,
 };
 
+const editableStatuses = new Set(['pending', 'confirmed', 'processing']);
+
+function subtotal(items: OrderItem[]) {
+  return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+}
+
+function itemKey(item: Pick<OrderItem, 'productId'>) {
+  return item.productId.toString();
+}
+
+function buildRequestedItems(order: Order, requested: Array<{ productId: string; quantity: number }>) {
+  const requestedMap = new Map(requested.map((item) => [item.productId, item.quantity]));
+  const knownIds = new Set(order.items.map(itemKey));
+
+  for (const productId of requestedMap.keys()) {
+    if (!knownIds.has(productId)) throw new AppError(400, 'Only existing order products can be edited');
+  }
+
+  const requestedItems = order.items.map((item) => ({
+    ...item,
+    quantity: requestedMap.get(itemKey(item)) ?? item.quantity,
+  }));
+
+  if (!requestedItems.some((item) => item.quantity > 0)) throw new AppError(400, 'Order must keep at least one product');
+  if (!requestedItems.some((item) => item.quantity !== order.items.find((current) => itemKey(current) === itemKey(item))?.quantity)) {
+    throw new AppError(400, 'No quantity changes requested');
+  }
+
+  return requestedItems;
+}
+
+async function assertExtraStock(items: OrderItem[], requestedItems: OrderItem[]) {
+  const db = getDB();
+  for (const requestedItem of requestedItems) {
+    const current = items.find((item) => itemKey(item) === itemKey(requestedItem));
+    const extraQuantity = requestedItem.quantity - (current?.quantity ?? 0);
+    if (extraQuantity <= 0) continue;
+
+    const product = await db.collection<Product>('products').findOne({ _id: requestedItem.productId }, { projection: { stock: 1, name: 1 } });
+    if (!product || product.stock < extraQuantity) {
+      throw new AppError(400, `${requestedItem.name} does not have enough stock for this edit`);
+    }
+  }
+}
+
 export const createOrder = asyncHandler(async (req, res) => {
   const db = getDB();
   const productIds = req.body.items.map((item: { productId: string }) => toObjectId(item.productId));
@@ -31,7 +76,7 @@ export const createOrder = asyncHandler(async (req, res) => {
     };
   });
 
-  const subtotalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotalAmount = subtotal(items);
   const deliveryArea = req.body.deliveryArea as DeliveryArea;
   const deliveryCharge = deliveryCharges[deliveryArea];
   const totalAmount = subtotalAmount + deliveryCharge;
@@ -95,4 +140,112 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     );
   if (!result) throw new AppError(404, 'Order not found');
   successResponse(res, 200, 'Order status updated', result);
+});
+
+export const requestOrderEdit = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id), userId: toObjectId(req.user!.userId) });
+  if (!order) throw new AppError(404, 'Order not found');
+  if (!editableStatuses.has(order.orderStatus)) throw new AppError(400, 'This order can no longer be edited');
+  if (order.editRequest?.status === 'pending') throw new AppError(409, 'An edit request is already pending');
+
+  const requestedItems = buildRequestedItems(order, req.body.items);
+  await assertExtraStock(order.items, requestedItems);
+
+  const requestedSubtotalAmount = subtotal(requestedItems.filter((item) => item.quantity > 0));
+  const requestedTotalAmount = requestedSubtotalAmount + (order.deliveryCharge ?? deliveryCharges[order.deliveryArea]);
+  const now = new Date();
+
+  const result = await db.collection<Order>('orders').findOneAndUpdate(
+    { _id: order._id },
+    {
+      $set: {
+        editRequest: {
+          status: 'pending',
+          requestedItems,
+          requestedSubtotalAmount,
+          requestedTotalAmount,
+          note: req.body.note,
+          requestedAt: now,
+        },
+        updatedAt: now,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+
+  successResponse(res, 200, 'Order edit request submitted', result);
+});
+
+export const approveOrderEdit = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });
+  if (!order) throw new AppError(404, 'Order not found');
+  if (order.editRequest?.status !== 'pending') throw new AppError(400, 'No pending edit request found');
+
+  const now = new Date();
+  const requestedItems = order.editRequest.requestedItems.filter((item) => item.quantity > 0);
+  const requestedSubtotalAmount = subtotal(requestedItems);
+  const deliveryCharge = order.deliveryCharge ?? deliveryCharges[order.deliveryArea];
+  const requestedTotalAmount = requestedSubtotalAmount + deliveryCharge;
+
+  const session = db.client.startSession();
+  let updatedOrder: Order | null = null;
+  try {
+    await session.withTransaction(async () => {
+      for (const requestedItem of order.editRequest!.requestedItems) {
+        const current = order.items.find((item) => itemKey(item) === itemKey(requestedItem));
+        const delta = requestedItem.quantity - (current?.quantity ?? 0);
+        if (delta === 0) continue;
+
+        const update = delta > 0
+          ? { $inc: { stock: -delta }, $set: { updatedAt: now } }
+          : { $inc: { stock: Math.abs(delta) }, $set: { updatedAt: now } };
+        const filter = delta > 0
+          ? { _id: requestedItem.productId, stock: { $gte: delta } }
+          : { _id: requestedItem.productId };
+
+        const stockResult = await db.collection<Product>('products').updateOne(filter, update, { session });
+        if (!stockResult.modifiedCount) throw new AppError(400, `${requestedItem.name} does not have enough stock for approval`);
+      }
+
+      updatedOrder = await db.collection<Order>('orders').findOneAndUpdate(
+        { _id: order._id },
+        {
+          $set: {
+            items: requestedItems,
+            subtotalAmount: requestedSubtotalAmount,
+            totalAmount: requestedTotalAmount,
+            'editRequest.status': 'approved',
+            'editRequest.adminNote': req.body.adminNote,
+            'editRequest.respondedAt': now,
+            updatedAt: now,
+          },
+        },
+        { returnDocument: 'after', session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  successResponse(res, 200, 'Order edit request approved', updatedOrder);
+});
+
+export const rejectOrderEdit = asyncHandler(async (req, res) => {
+  const now = new Date();
+  const result = await getDB().collection<Order>('orders').findOneAndUpdate(
+    { _id: toObjectId(req.params.id), 'editRequest.status': 'pending' },
+    {
+      $set: {
+        'editRequest.status': 'rejected',
+        'editRequest.adminNote': req.body.adminNote,
+        'editRequest.respondedAt': now,
+        updatedAt: now,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!result) throw new AppError(404, 'Pending edit request not found');
+  successResponse(res, 200, 'Order edit request rejected', result);
 });
