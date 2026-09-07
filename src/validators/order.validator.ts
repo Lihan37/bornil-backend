@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { browserTrackingSchema } from './meta.validator';
 
 export const orderSchema = z.object({
   customerName: z.string().min(2).max(80),
@@ -12,6 +13,7 @@ export const orderSchema = z.object({
     productId: z.string().min(1),
     quantity: z.coerce.number().int().min(1).max(99),
   })).min(1),
+  tracking: browserTrackingSchema,
 });
 
 export const orderStatusSchema = z.object({

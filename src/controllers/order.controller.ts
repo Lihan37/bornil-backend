@@ -7,6 +7,7 @@ import { AppError } from '../utils/AppError';
 import { successResponse } from '../utils/apiResponse';
 import { asyncHandler } from '../utils/asyncHandler';
 import { signToken } from '../utils/jwt';
+import { orderCustomData, sendMetaCapiEvent, userDataFromOrder } from '../utils/meta';
 import { toObjectId } from '../utils/objectId';
 import { sanitizeUser } from '../utils/sanitize';
 
@@ -150,11 +151,19 @@ export const createOrder = asyncHandler(async (req, res) => {
           { session },
         );
       }
-      await db.collection<Order>('orders').insertOne(order, { session });
+      const result = await db.collection<Order>('orders').insertOne(order, { session });
+      order._id = result.insertedId;
     });
   } finally {
     await session.endSession();
   }
+  void sendMetaCapiEvent({
+    eventName: 'Purchase',
+    eventId: `Purchase:${order._id!.toString()}`,
+    eventSourceUrl: req.body.tracking?.eventSourceUrl,
+    userData: userDataFromOrder(user, order, req.body.tracking, req.ip, req.get('user-agent')),
+    customData: orderCustomData(order),
+  });
 
   successResponse(res, 201, 'Order placed', { order, auth });
 });

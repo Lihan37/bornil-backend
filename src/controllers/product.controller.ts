@@ -1,10 +1,12 @@
 import type { Filter, Sort } from 'mongodb';
 import { cloudinary } from '../config/cloudinary';
+import { env } from '../config/env';
 import { getDB } from '../db/connectDB';
 import type { Product, ProductImage } from '../types';
 import { AppError } from '../utils/AppError';
 import { successResponse } from '../utils/apiResponse';
 import { asyncHandler } from '../utils/asyncHandler';
+import { buildCatalogFeed } from '../utils/catalogFeed';
 import { toObjectId } from '../utils/objectId';
 import { slugify } from '../utils/slugify';
 
@@ -68,6 +70,21 @@ export const getProducts = asyncHandler(async (req, res) => {
   });
 });
 
+
+export const getProductFeed = asyncHandler(async (_req, res) => {
+  const products = await getDB()
+    .collection<Product>('products')
+    .find({ status: 'active' })
+    .sort({ createdAt: -1 })
+    .toArray();
+  const { xml, stats } = buildCatalogFeed(products, env.CLIENT_URL);
+
+  res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=900');
+  res.setHeader('X-Bornil-Catalog-Total', String(stats.total));
+  res.setHeader('X-Bornil-Catalog-Eligible', String(stats.eligible));
+  res.status(200).send(xml);
+});
 export const getProductById = asyncHandler(async (req, res) => {
   const product = await getDB().collection<Product>('products').findOne({ _id: toObjectId(req.params.id), status: 'active' });
   if (!product) throw new AppError(404, 'Product not found');

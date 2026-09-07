@@ -8,6 +8,7 @@ import { env } from './config/env';
 import authRoutes from './routes/auth.routes';
 import categoryRoutes from './routes/category.routes';
 import orderRoutes from './routes/order.routes';
+import metaRoutes from './routes/meta.routes';
 import productRoutes from './routes/product.routes';
 import settingsRoutes from './routes/settings.routes';
 import userRoutes from './routes/user.routes';
@@ -54,6 +55,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/meta', metaRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 

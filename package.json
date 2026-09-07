@@ -11,7 +11,8 @@
     "seed:categories": "ts-node src/seedCategories.ts",
     "migrate:users": "ts-node src/migrateUsers.ts",
     "migrate:admins": "ts-node src/migrateAdmins.ts",
-    "migrate:email-index": "ts-node src/migrateEmailIndex.ts"
+    "migrate:email-index": "ts-node src/migrateEmailIndex.ts",
+    "test:meta": "node -r ts-node/register src/tests/meta.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
