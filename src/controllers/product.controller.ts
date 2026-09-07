@@ -28,7 +28,7 @@ async function deleteCloudinaryImages(images: ProductImage[]) {
 export const getProducts = asyncHandler(async (req, res) => {
   const db = getDB();
   const page = Math.max(Number(req.query.page) || 1, 1);
-  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 48);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 200);
   const skip = (page - 1) * limit;
   const filter: Filter<Product> = { status: 'active' };
 

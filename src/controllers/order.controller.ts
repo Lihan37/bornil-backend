@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import type { ClientSession } from 'mongodb';
 import { ObjectId } from 'mongodb';
 import { adminPhones } from '../config/env';
 import { getDB } from '../db/connectDB';
@@ -81,6 +82,55 @@ function buildRequestedItems(order: Order, requested: Array<{ productId: string;
   return requestedItems;
 }
 
+
+async function buildAdminOrderItems(requested: Array<{ productId: string; quantity: number }>) {
+  const db = getDB();
+  const productIds = [...new Set(requested.map((item) => item.productId))];
+  const products = await db.collection<Product>('products').find({ _id: { $in: productIds.map(toObjectId) }, status: 'active' }).toArray();
+  const productMap = new Map(products.map((product) => [product._id!.toString(), product]));
+
+  return requested.map((item) => {
+    const product = productMap.get(item.productId);
+    if (!product) throw new AppError(404, 'Product not found');
+    return {
+      productId: product._id!,
+      name: product.name,
+      slug: product.slug,
+      image: product.images[0]?.url,
+      price: product.price,
+      quantity: item.quantity,
+    } satisfies OrderItem;
+  });
+}
+
+function quantityMap(items: OrderItem[]) {
+  const map = new Map<string, number>();
+  for (const item of items) {
+    const key = itemKey(item);
+    map.set(key, (map.get(key) ?? 0) + item.quantity);
+  }
+  return map;
+}
+
+async function applyInventoryDelta(currentItems: OrderItem[], nextItems: OrderItem[], session: ClientSession, now: Date) {
+  const db = getDB();
+  const current = quantityMap(currentItems);
+  const next = quantityMap(nextItems);
+  const productIds = new Set([...current.keys(), ...next.keys()]);
+
+  for (const productId of productIds) {
+    const delta = (next.get(productId) ?? 0) - (current.get(productId) ?? 0);
+    if (delta === 0) continue;
+
+    const filter = delta > 0 ? { _id: toObjectId(productId), stock: { $gte: delta } } : { _id: toObjectId(productId) };
+    const update = delta > 0
+      ? { $inc: { stock: -delta }, $set: { updatedAt: now } }
+      : { $inc: { stock: Math.abs(delta) }, $set: { updatedAt: now } };
+
+    const result = await db.collection<Product>('products').updateOne(filter, update, { session });
+    if (!result.modifiedCount) throw new AppError(400, 'Not enough stock for one or more edited products');
+  }
+}
 async function assertExtraStock(items: OrderItem[], requestedItems: OrderItem[]) {
   const db = getDB();
   for (const requestedItem of requestedItems) {
@@ -182,6 +232,53 @@ export const getAdminOrders = asyncHandler(async (_req, res) => {
   successResponse(res, 200, 'Orders loaded', orders);
 });
 
+
+export const updateAdminOrder = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });
+  if (!order) throw new AppError(404, 'Order not found');
+  if (order.orderStatus === 'cancelled') throw new AppError(400, 'Cancelled orders cannot be edited');
+
+  const nextItems = req.body.items ? await buildAdminOrderItems(req.body.items) : order.items;
+  if (!nextItems.length) throw new AppError(400, 'Order must have at least one product');
+
+  const deliveryArea = (req.body.deliveryArea as DeliveryArea | undefined) ?? order.deliveryArea;
+  const deliveryCharge = deliveryCharges[deliveryArea];
+  const subtotalAmount = subtotal(nextItems);
+  const totalAmount = subtotalAmount + deliveryCharge;
+  const now = new Date();
+
+  const update: Partial<Order> = {
+    customerName: req.body.customerName ?? order.customerName,
+    phone: req.body.phone ?? order.phone,
+    address: req.body.address ?? order.address,
+    deliveryArea,
+    deliveryCharge,
+    subtotalAmount,
+    items: nextItems,
+    totalAmount,
+    adminEditedAt: now,
+    adminEditNote: req.body.adminNote,
+    updatedAt: now,
+  };
+
+  let updatedOrder: Order | null = null;
+  const session = db.client.startSession();
+  try {
+    await session.withTransaction(async () => {
+      await applyInventoryDelta(order.items, nextItems, session, now);
+      updatedOrder = await db.collection<Order>('orders').findOneAndUpdate(
+        { _id: order._id },
+        { $set: update },
+        { returnDocument: 'after', session },
+      );
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  successResponse(res, 200, 'Order updated', updatedOrder);
+});
 export const updateOrderStatus = asyncHandler(async (req, res) => {
   const db = getDB();
   const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });

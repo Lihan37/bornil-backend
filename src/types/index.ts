@@ -1,4 +1,4 @@
-import type { ObjectId } from 'mongodb';
+﻿import type { ObjectId } from 'mongodb';
 
 export type Role = 'user' | 'admin';
 export type UserStatus = 'active' | 'blocked';
@@ -100,6 +100,8 @@ export type Order = {
   orderStatus: OrderStatus;
   inventoryRestored?: boolean;
   editRequest?: OrderEditRequest;
+  adminEditedAt?: Date;
+  adminEditNote?: string;
   createdAt: Date;
   updatedAt: Date;
 };

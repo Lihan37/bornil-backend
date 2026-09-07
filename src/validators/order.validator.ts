@@ -31,3 +31,14 @@ export const orderEditRequestSchema = z.object({
 export const orderEditDecisionSchema = z.object({
   adminNote: z.string().max(500).optional(),
 });
+export const adminOrderUpdateSchema = z.object({
+  customerName: z.string().min(2).max(80).optional(),
+  phone: z.string().regex(/^01[0-9]{9}$/, 'Use a valid Bangladesh phone number').optional(),
+  address: z.string().min(8).max(500).optional(),
+  deliveryArea: z.enum(['inside_dhaka', 'outside_dhaka']).optional(),
+  adminNote: z.string().max(500).optional(),
+  items: z.array(z.object({
+    productId: z.string().min(1),
+    quantity: z.coerce.number().int().min(1).max(99),
+  })).min(1).optional(),
+});
