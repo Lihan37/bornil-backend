@@ -237,7 +237,6 @@ export const updateAdminOrder = asyncHandler(async (req, res) => {
   const db = getDB();
   const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });
   if (!order) throw new AppError(404, 'Order not found');
-  if (order.orderStatus === 'cancelled') throw new AppError(400, 'Cancelled orders cannot be edited');
 
   const nextItems = req.body.items ? await buildAdminOrderItems(req.body.items) : order.items;
   if (!nextItems.length) throw new AppError(400, 'Order must have at least one product');
@@ -266,7 +265,9 @@ export const updateAdminOrder = asyncHandler(async (req, res) => {
   const session = db.client.startSession();
   try {
     await session.withTransaction(async () => {
-      await applyInventoryDelta(order.items, nextItems, session, now);
+      if (!order.inventoryRestored) {
+        await applyInventoryDelta(order.items, nextItems, session, now);
+      }
       updatedOrder = await db.collection<Order>('orders').findOneAndUpdate(
         { _id: order._id },
         { $set: update },
@@ -283,10 +284,6 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   const db = getDB();
   const order = await db.collection<Order>('orders').findOne({ _id: toObjectId(req.params.id) });
   if (!order) throw new AppError(404, 'Order not found');
-  if (order.orderStatus === 'cancelled' && req.body.orderStatus !== 'cancelled') {
-    throw new AppError(400, 'Cancelled orders cannot be reopened');
-  }
-
   const now = new Date();
   let updatedOrder: Order | null = null;
   const session = db.client.startSession();
@@ -302,12 +299,23 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
         }
       }
 
+      if (req.body.orderStatus !== 'cancelled' && order.inventoryRestored) {
+        for (const item of order.items) {
+          const result = await db.collection<Product>('products').updateOne(
+            { _id: item.productId, stock: { $gte: item.quantity } },
+            { $inc: { stock: -item.quantity }, $set: { updatedAt: now } },
+            { session },
+          );
+          if (!result.modifiedCount) throw new AppError(400, `${item.name} does not have enough stock to reopen this order`);
+        }
+      }
+
       updatedOrder = await db.collection<Order>('orders').findOneAndUpdate(
         { _id: order._id },
         {
           $set: {
             orderStatus: req.body.orderStatus,
-            inventoryRestored: req.body.orderStatus === 'cancelled' ? true : order.inventoryRestored ?? false,
+            inventoryRestored: req.body.orderStatus === 'cancelled',
             updatedAt: now,
           },
         },
