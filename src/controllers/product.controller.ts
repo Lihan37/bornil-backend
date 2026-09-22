@@ -70,6 +70,46 @@ export const getProducts = asyncHandler(async (req, res) => {
   });
 });
 
+export const getAdminProducts = asyncHandler(async (req, res) => {
+  const db = getDB();
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 200);
+  const skip = (page - 1) * limit;
+  const filter: Filter<Product> = {};
+
+  if (req.query.category) filter.category = String(req.query.category);
+  if (req.query.status && req.query.status !== 'all') filter.status = String(req.query.status) as Product['status'];
+  if (req.query.search) {
+    const search = new RegExp(escapeRegex(String(req.query.search).trim()), 'i');
+    filter.$or = [{ name: search }, { description: search }, { category: search }];
+  }
+  if (req.query.availability === 'in-stock') filter.stock = { $gt: 0 };
+  if (req.query.availability === 'out-of-stock') filter.stock = 0;
+
+  const sort: Sort =
+    req.query.sort === 'oldest'
+      ? { createdAt: 1 }
+      : req.query.sort === 'price-low-high'
+        ? { price: 1 }
+        : req.query.sort === 'price-high-low'
+          ? { price: -1 }
+          : req.query.sort === 'stock-low-high'
+            ? { stock: 1, createdAt: -1 }
+            : { createdAt: -1 };
+
+  const [products, total] = await Promise.all([
+    db.collection<Product>('products').find(filter).sort(sort).skip(skip).limit(limit).toArray(),
+    db.collection<Product>('products').countDocuments(filter),
+  ]);
+
+  successResponse(res, 200, 'Admin products loaded', products, {
+    page,
+    limit,
+    total,
+    totalPages: Math.ceil(total / limit),
+  });
+});
+
 
 export const getProductFeed = asyncHandler(async (_req, res) => {
   const products = await getDB()
