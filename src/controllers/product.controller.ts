@@ -173,7 +173,8 @@ export const updateProduct = asyncHandler(async (req, res) => {
   if (!existing) throw new AppError(404, 'Product not found');
 
   const files = req.files as Express.Multer.File[] | undefined;
-  const nextImages = [...(req.body.existingImages || []), ...uploadedImages(files)];
+  const newImages = uploadedImages(files);
+  const nextImages = [...newImages, ...(req.body.existingImages || [])];
   if (!nextImages.length) throw new AppError(400, 'At least one product image is required');
 
   const removedImages = existing.images.filter((image) => !nextImages.some((next) => next.publicId === image.publicId));
