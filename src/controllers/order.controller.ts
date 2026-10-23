@@ -39,8 +39,21 @@ async function findOrCreateCheckoutUser(payload: { name: string; phone: string; 
     return { user, auth: undefined };
   }
 
-  const existing = await db.collection<User>('users').findOne({ phone: payload.phone });
-  if (existing) return { user: existing, auth: undefined };
+  const identityFilters: Array<{ phone: string } | { email: string }> = [{ phone: payload.phone }];
+  if (payload.email) identityFilters.push({ email: payload.email.toLowerCase() });
+  const existing = await db.collection<User>('users').findOne({ $or: identityFilters });
+  if (existing) {
+    if (existing.phone !== payload.phone) {
+      throw new AppError(409, 'This email is already linked to another phone number. Login to that account or use a different email.');
+    }
+    if (!payload.password || !(await bcrypt.compare(payload.password, existing.passwordHash))) {
+      throw new AppError(401, 'An account already exists with this phone. Enter the correct account password or login first.');
+    }
+    if (existing.status === 'blocked') throw new AppError(403, 'Your account is blocked');
+
+    const token = signToken({ userId: existing._id!.toString(), role: existing.role });
+    return { user: existing, auth: { token, user: sanitizeUser(existing) } };
+  }
   if (!payload.password) throw new AppError(400, 'Password is required to create your account with this order');
 
   const now = new Date();
@@ -53,7 +66,7 @@ async function findOrCreateCheckoutUser(payload: { name: string; phone: string; 
     createdAt: now,
     updatedAt: now,
   };
-  if (payload.email) user.email = payload.email;
+  if (payload.email) user.email = payload.email.toLowerCase();
 
   const result = await db.collection<User>('users').insertOne(user);
   const savedUser = { ...user, _id: result.insertedId };
